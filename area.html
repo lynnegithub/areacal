@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+//reference:http://geomalgorithms.com/a09-_intersect-3.html
+
+// xyorder(): determines the xy lexicographical order of two points
+// returns: (+1) if p1 > p2; (-1) if p1 < p2; and  0 if equal 
+function xyOrder(p1, p2) 
+{
+    // test the x-coord first
+    if (p1.x > p2.x) return 1; 
+    if (p1.x < p2.x) return (-1);
+    // and test the y-coord second
+    if (p1.y > p2.y) return 1; 
+    if (p1.y < p2.y) return (-1);
+    // when you exclude all other possibilities, what remains  is...
+    return 0;  // they are the same point 
+}
+
+function eventOrder(e1, e2) 
+{
+//order the event in event query so that the swpline can insert properly
+	var tn = xyOrder(e1.vertex, e2.vertex) ;//test the two vertices' relationship
+	if( e1.type === "right" && e1.vertex.x === e1.op.x )//vertical sweepline
+	 {
+		return 1;
+	 }
+	 else if( e2.type==="right" && e2.vertex.x === e2.op.x ) //vertical sweepline
+	 {
+		return -1;
+	 }
+	 else
+	 {
+		if(tn === 0)
+		{
+		//if the left or right endpoints are same
+			 var ln = isLeft(e1.vertex, e1.op, e2.op);
+				 if((ln >  0 && e1.type==="right") || (ln < 0 && e1.type==="left") || (e2.type==="left" && e2.vertex.x === e2.op.x ) )
+				 {
+				 //if e2 is on the left side of e1 means that e2 is above e1 => seg e1 < e2
+					return 1;
+				 }
+				 else if ((ln < 0 && e1.type === "right") || (ln >  0 && e1.type==="left") || ( e1.type==="left" && e1.vertex.x === e1.op.x))
+				 {
+				 //if e2 is on the right side of e1 means that e2 is below e1 => seg e1 > e2
+				   return -1;
+				 }
+				 else
+				 {
+					return 0;     
+				 }    
+		 }
+		 else
+		 {
+		 //if the left or right endpoints are not same order the seg by the left endpoints is enough
+			 if(e1.edgeNum === e2.edgeNum && e1.type === "left")
+			 {
+				return -1;
+			 }
+			 else if(e1.edgeNum === e2.edgeNum && e1.type === "right")
+			{
+				return 1;
+			}
+			else
+			{
+				return tn;
+			}
+		}
+	}	
+}
+function eContain(e, el)
+{
+//check if event e is already existed in the event query(inefficiency by using forloop)
+	for(var i = 0; i < el.length; ++i)
+	{
+		if(e.vertex.x === el[i].vertex.x && e.vertex.y === el[i].vertex.y )
+		{
+			if((e.type==="ip"&&el[i].type==="ip")||(e.edgeNum === el[i].edgeNum))//if it is an intersection or in the same edge
+			{
+				return i;//exist
+			}
+		}
+	}
+	return -1;
+}
+function splContain(seg,spl)
+{
+//check if event seg is already existed in the sweepline
+	for(var i = 0; i < spl.length; ++i)
+	{
+		if(spl[i].edgeNum === seg.edgeNum)
+		{
+			return i;
+		}
+	}
+	return -1;//not exist
+		
+}
+	
+function getEdge(lP,el,iP)
+{
+	for(var i = 0; i < el.length; ++i)
+	{
+			if(el[i].p1.x === lP.x && el[i].p1.y === lP.y)
+			{
+				if(Math.abs(isLeft(lP,el[i].p2,iP)-0) < 0.000001)//same as ===0 but need to deal with the float points
+				{
+					return {id:i,vertex:el[i].p2};
+				}
+			}
+	}
+}
+
+// isLeft(): tests if point e2.vertex is Left|On|Right of the line P0 to P1.
+//      returns: >0 for left, 0 for on, and <0 for  right of the line.
+//      (see Algorithm 1 on Area of Triangles)
+function isLeft( p0, p1, p2)
+{
+    return (p1.x - p0.x)*(p2.y - p0.y) - (p2.x - p0.x)*(p1.y -  p0.y);
+}
+
+function lineDistance( p0, p1 )
+{
+	 var xs = 0;
+	 var ys = 0;
+	 xs = p0.x - p1.x;
+	 xs = xs * xs;
+	 ys = p0.y - p1.y;
+	 ys = ys * ys;
+	 return Math.sqrt( xs + ys );
+}
+//===================================================================
+ 
+function  Edge(p1, p2)
+{
+	this.p1 = p1;
+	this.p2 = p2;
+}
+
+function Polygon(points) 
+{
+	this.endPoints = points;
+	this.vertices = points.length;
+	this.edges = new Array();
+	for(var i = 0; i < points.length; ++i)
+	{
+		if(i !== points.length - 1)
+		{
+			this.edges.push(new Edge(points[i], points[i+1]));
+		}
+		else
+		{
+			this.edges.push(new Edge(points[i], points[0]));
+			//last edge of the polygon
+		}		
+	}
+}
+
+
+function Event(edgeNum,vertex)
+{
+	this.edgeNum = edgeNum;
+	this.vertex = vertex;
+
+}
+function EventQueue(polygon) {
+	this.ne = 2*polygon.vertices;//total number of events in array(two events for each vertex)
+	this.eq = new Array();//array of all endpoints
+	for(var i = 0; i < polygon.vertices; ++i)
+	{
+		this.eq[2*i] = new Event(i,polygon.endPoints[i]);
+		if(i === polygon.vertices-1)
+		{
+			this.eq[2*i+1] = new Event(i,polygon.endPoints[0]);//close the polygon
+		}
+		else
+		{
+			
+			this.eq[2*i+1] = new Event(i,polygon.endPoints[i+1]);
+		}
+		if (xyOrder(this.eq[2*i].vertex , this.eq[2*i+1].vertex) < 0)  
+		{ // determine type
+			this.eq[2*i].type = "left";
+			this.eq[2*i].op = this.eq[2*i+1].vertex;//op is for order the event by the whole line not only the point
+			this.eq[2*i+1].type = "right";
+			this.eq[2*i+1].op = this.eq[2*i].vertex;
+		}
+		else {
+			this.eq[2*i].type = "right";
+			this.eq[2*i].op = this.eq[2*i+1].vertex;
+			this.eq[2*i+1].type = "left";
+			this.eq[2*i+1].op = this.eq[2*i].vertex;
+		}
+	}
+	this.eq.sort(eventOrder);
+}
+	
+EventQueue.prototype.add=function(event)
+{
+	this.eq.push(event);
+	this.ne++;
+	this.eq.sort(eventOrder);
+}
+
+function SSeg(edgeNum){
+	 this.edgeNum = edgeNum;
+	 this.lP = 0;
+	 this.rP = 0;
+	 this.above = 0;
+	 this.below = 0;
+
+}
+function SweepLine(polygon)
+{
+	this.sl = new Array();
+	this.polygon = polygon;
+}
+
+SweepLine.prototype.add = function(event)
+{
+	var s = new SSeg(event.edgeNum);
+	var v1 = this.polygon.endPoints[s.edgeNum];
+	if(this.polygon.vertices === event.edgeNum + 1)
+	{
+		var v2 = this.polygon.endPoints[0];
+	}
+	else
+	{
+		var v2 = this.polygon.endPoints[s.edgeNum + 1];
+		//go back to the begining endpoints to close the polygon
+	}
+	if(xyOrder(v1, v2) < 0)//determine the left and right endpoint
+	{
+		s.lP = v1;
+		s.rP = v2;
+	}
+	else
+	{
+		s.rP = v1;
+		s.lP = v2;
+	}
+	this.sl.push(s);
+	var id = splContain(s, this.sl);//get the index of the sweepline
+	var next = this.sl[id+1];//the line above
+	var prev = this.sl[id-1];//the line below
+	if (next !== undefined) 
+	{
+        s.above = next;
+        next.below = s;
+    }
+    if (prev !== undefined) 
+	{
+        s.below = prev;
+        prev.above = s;
+    }
+	//assign the above and below seg properly
+	return s;
+}
+
+
+SweepLine.prototype.find = function(edgeNum)
+{
+//check if a the seg already exists in the sweepline and return the edgeNum
+	for(var i = 0; i < this.sl.length; ++i)
+	{
+		if(this.sl[i].edgeNum === edgeNum)
+		{
+			return this.sl[i];
+		}
+
+	}	
+	return -1;//not exist
+
+}
+SweepLine.prototype.remove = function(seg)
+{
+    var indexOfSeg = splContain(seg,this.sl);
+	if(indexOfSeg === -1)
+	{
+        return;   // not there    
+	}
+    // get the above and below segments pointing to each other
+    var next = this.sl[indexOfSeg+1];
+	var prev = this.sl[indexOfSeg-1];
+    if (next !== undefined && prev !== undefined ) 
+	{
+		next.below = prev;
+        prev.above = next;
+    }
+	else if(next === undefined && prev === undefined )
+	{
+		//only one sweepline in the array
+	}
+    else if (prev !== undefined) 
+	{
+		prev.above = 0;
+		
+    }
+	else 
+	{
+		next.below  = 0;
+	}
+
+	this.sl.splice(indexOfSeg, 1);
+	//remove it
+}
+
+// test intersect of 2 segments 
+SweepLine.prototype.intersect = function(seg1, seg2)
+{
+    if (seg1 === 0 || seg2 === 0)
+	{
+        return 0;    // no intersect if segments do not exist
+	}		
+
+    // check for consecutive edges in polygon
+    var e1 = seg1.edgeNum;
+    var e2 = seg2.edgeNum;
+    var nv = this.polygon.vertices;
+    if (((e1+1)%nv === e2) || (e1 === (e2+1)%nv))
+	{//for triangle edge1 and edge2 are adjacent edge1 and edge3 also
+        return 0;       // no non-simple intersect since consecutive
+	}
+
+    // test for existence of an intersect point
+    var lsign, rsign;
+    lsign = isLeft(seg1.lP, seg1.rP, seg2.lP);    //  seg2 left point sign
+    rsign = isLeft(seg1.lP, seg1.rP, seg2.rP);    //  seg2 right point sign
+    if (lsign * rsign > 0) // seg2 endpoints have same sign  relative to s1
+    {
+		return 0;       // => on same side => no intersect is possible
+	}
+    lsign = isLeft(seg2.lP, seg2.rP, seg1.lP);    //  s1 left point sign
+    rsign = isLeft(seg2.lP, seg2.rP, seg1.rP);    //  s1 right point sign
+    if (lsign * rsign > 0) // s1 endpoints have same sign  relative to s2
+    {   
+		return 0;       // => on same side => no intersect is possible
+	}
+    // the segments s1 and s2 straddle each other
+	var denominator = (seg1.rP.y - seg1.lP.y)*(seg2.rP.x - seg2.lP.x) - (seg1.lP.x - seg1.rP.x)*(seg2.lP.y - seg2.rP.y);    
+	// point (x , y)      
+    var x = ( (seg1.rP.x - seg1.lP.x) * (seg2.rP.x - seg2.lP.x) * (seg2.lP.y - seg1.lP.y)   
+                + (seg1.rP.y - seg1.lP.y) * (seg2.rP.x - seg2.lP.x) * seg1.lP.x   
+                - (seg2.rP.y - seg2.lP.y) * (seg1.rP.x - seg1.lP.x) * seg2.lP.x ) / denominator ;  
+    var y = -( (seg1.rP.y - seg1.lP.y) * (seg2.rP.y - seg2.lP.y) * (seg2.lP.x - seg1.lP.x)   
+                + (seg1.rP.x - seg1.lP.x) * (seg2.rP.y - seg2.lP.y) * seg1.lP.y   
+                - (seg2.rP.x - seg2.lP.x) * (seg1.rP.y - seg1.lP.y) * seg2.lP.y ) / denominator;  
+	var ei = new Event([e1,e2],{x:x,y:y});
+	ei.type = "ip";//event type is intersection point
+
+    return ei;            // => an intersect exists
+}
+//===================================================================
+//the following code was done by me co-worker
+SweepLine.prototype.swap = function(seg1, seg2)
+{
+	var indexOfSeg1 = Math.min(splContain(seg1,this.sl), splContain(seg2,this.sl));
+	var indexOfSeg2 = Math.max(splContain(seg1,this.sl), splContain(seg2,this.sl));
+	var prev = this.sl[indexOfSeg1 -1];//get the sweepline below the lower seg
+	var next = this.sl[indexOfSeg2 + 1];//get the sweepline above the upper seg
+	//swap the two sweeplines
+	var tem = this.sl[indexOfSeg1];
+	this.sl[indexOfSeg1] = this.sl[indexOfSeg2];
+	this.sl[indexOfSeg2] = tem;
+	//swap the below and above sweepline of those two sweepline if they do exist
+	this.sl[indexOfSeg1].above = this.sl[indexOfSeg2];
+	this.sl[indexOfSeg2].below = this.sl[indexOfSeg1];
+	 if (prev !== undefined && next !== undefined) 
+	{
+	//if both exist
+        this.sl[indexOfSeg1].below = prev;
+		prev.above = this.sl[indexOfSeg1];
+		this.sl[indexOfSeg2].above = next;
+		next.below = this.sl[indexOfSeg2];
+    }
+	else if(prev === undefined && next === undefined)
+	{
+	//if both not exist
+		this.sl[indexOfSeg2].above = 0;
+		this.sl[indexOfSeg1].below = 0;	
+	}
+	else if (next !== undefined) 
+	{
+	//if no swpline above the upper seg
+		this.sl[indexOfSeg1].below = 0;	
+        this.sl[indexOfSeg2].above = next;
+		next.below = this.sl[indexOfSeg2];	
+    }
+	else
+	{
+	//if no swpline below the lower seg		
+		this.sl[indexOfSeg2].above = 0;
+		this.sl[indexOfSeg1].below = prev;
+		prev.above = this.sl[indexOfSeg1];		
+	}
+}
+
+
+//shape the polygon with the points in pointslist             
+Polygon.prototype.intersections = function()
+{
+    var eqy = new EventQueue(this);
+	console.log(eqy);
+    var sl = new SweepLine(this); 
+	console.log(sl);
+	var il = new Array();//intersections
+    // This loop processes all events in the sorted queue
+    while(eqy.ne > 0)
+	{       
+		var e = eqy.eq[0];//pop
+        if (e.type === "left" ) 
+		{      // process a left vertex
+            var s = sl.add(e);      // add it to the sweep line
+			var ia = sl.intersect(s, s.above); //intersection with the above seg
+			var ib = sl.intersect(s, s.below);	//intersection with the below seg		
+            if (ia) 
+			{
+                if(eContain(ia, il) === -1)
+				    eqy.add(ia); //add the intersection point to event query
+			}
+			if (ib) 
+			{
+                if(eContain(ib, il) === -1)
+                    eqy.add(ib);  //add the intersection point to event query
+			}					
+        }
+        else if(e.type === "right" )
+		{    // processs a right vertex
+			var s = sl.find(e.edgeNum);
+			var iab=sl.intersect(s.above, s.below);//intersection of the above seg and the below seg
+				if (iab) 
+				{
+					if(eContain(iab, il)===-1)
+						eqy.add(iab);    //add the intersection point to event query
+				}					 
+				sl.remove(s);   // remove it from the sweep line
+        }
+		else
+		{//intersection point
+		    il.push({vertex:{x: e.vertex.x, y: e.vertex.y},edges:e.edgeNum,type:"ip"});//add to intersection list
+			var iLine1 = sl.find(e.edgeNum[0]);
+			var iLine2 = sl.find(e.edgeNum[1]);		
+			sl.swap(iLine1,iLine2);//the order matters first one must be with the small edgeNum
+			var ia = sl.intersect(iLine2, iLine2.above);
+			var ib = sl.intersect(iLine1, iLine1.below);	
+			if (ia) 
+			{
+              if(eContain(ia, il) === -1)
+			  {
+				eqy.add(ia); //add the intersection point to event query
+			  }
+			}
+			if (ib) 
+			{
+                if(eContain(ib, il) === -1)
+				{
+                    eqy.add(ib);  //add the intersection point to event query
+				}					
+			}			
+		}
+		eqy.eq.splice(eContain(e, eqy.eq),1);	
+		eqy.ne--;//pop
+    }
+	return il;	
+}
+//dividedPolygon use the intersection points to divide the polugon into a set of vectors
+function dividedPolygon(polygon,iList)
+{
+	for(var i = 0; i < iList.length; ++i)
+	{
+	//for each intersections
+		for(var j = 0; j < iList[i].edges.length; ++j)
+		{
+		//for each edge of the intersection		
+			var lP = polygon.endPoints[iList[i].edges[j]];
+			var activeEdge = getEdge(lP,polygon.edges,iList[i].vertex);
+			var rP = activeEdge.vertex;
+			var index = activeEdge.id;
+			if(lineDistance( lP, iList[i].vertex ) < lineDistance( lP, rP ))
+			{
+				polygon.edges.splice(index, 1, new Edge(lP, iList[i].vertex),new Edge(iList[i].vertex, rP));
+				//split one edge into two
+			}
+			else
+			{
+				activeEdge = getEdge(rP,polygon.edges,iList[i].vertex);
+				var newLP = rP;
+				var newRP = activeEdge.vertex;
+				index = activeEdge.id;
+				polygon.edges.splice(index, 1, new Edge(newLP, iList[i].vertex), new Edge(iList[i].vertex, newRP));
+				//split one edge into two
+			}
+	
+		}
+	}
+	return polygon.edges;
+}
+//--------------------------------------------------------------------------------------------------
+
+//filter the set of vectors to the outline of shape we need to fill
+function perimeter(lines) {
+    var result = [];
+    if (lines.length <= 2) {
+        result = lines.slice(0);
+        return result;
+    }
+
+    var lastLine = lineWithSmallestX(lines);
+    var vertex = ptGt(lastLine.p1, lastLine.p2) ? lastLine.p2 : lastLine.p1;
+    var adjoiningLines = linesFromVertex(vertex, null, lines);
+    var lastLine = lineWithClosestAngle({ p1: { x: vertex.x - 100, y: vertex.y }, p2: vertex }, adjoiningLines);
+    var withTheFlow = ptEq(vertex, lastLine.p1);
+
+    result.push(withTheFlow ? lastLine : reverseLine(lastLine));
+    vertex = result[result.length - 1].p2;
+
+    for (x = 0; x < 1000 ; ++x ) {
+        adjoiningLines = linesFromVertex(vertex, lastLine, lines);
+        lastLine = lineWithClosestAngle(result[result.length - 1], adjoiningLines);
+        withTheFlow = ptEq(vertex, lastLine.p1);
+        result.push(withTheFlow ? lastLine : reverseLine(lastLine));
+        vertex = result[result.length - 1].p2;
+        if (ptEq(result[0].p1, vertex)) 
+		{
+            return result;
+        } 
+    }
+
+    function lineWithSmallestX(lines) {
+        var result = lines[0];
+        var min = minx(lines[0]);
+        for (var i = 1; i < lines.length; ++i) 
+		{
+            var m = minx(lines[i]);
+            if (m < min) 
+			{
+                min = m;
+                result = lines[i];
+            }
+        }
+        return result;
+    }
+
+    function minx(line) {
+        return Math.min(line.p1.x, line.p2.x);
+    }
+
+    function linesFromVertex(vertex, lineToIgnore, lines) 
+	{
+        var result = [];
+        for (var i = 0; i < lines.length; ++i) 
+		{
+            if (lineToIgnore !== lines[i]) {
+                if (ptEq(vertex, lines[i].p1) || ptEq(vertex, lines[i].p2)) {
+                    result.push(lines[i]);
+                }
+            }
+        }
+        return result;
+    }
+
+function lineWithClosestAngle(fromLine, lines) 
+{
+	var result = lines[0];
+	var revLine = reverseLine(fromLine);
+	var candidate = ptEq(lines[0].p2, fromLine.p2) ? reverseLine(lines[0]) : lines[0]; // reverse if line is flowing into "fromLine"
+	var min = angleBetween2Lines(revLine, candidate);
+	for (var i = 1; i < lines.length; ++i) {
+		candidate = ptEq(lines[i].p2, fromLine.p2) ? reverseLine(lines[i]) : lines[i];
+		var angle = angleBetween2Lines(revLine, candidate);
+		if (angle < min) 
+		{
+			min = angle;
+			result = lines[i];
+		}
+	}
+	return result;
+}
+
+    function angleBetween2Lines(line1, line2) 
+	{
+        var angle1 = Math.atan2(line1.p1.y - line1.p2.y, line1.p1.x - line1.p2.x);
+        if (angle1 < 0) angle1 += 2 * Math.PI;
+        var angle2 = Math.atan2(line2.p1.y - line2.p2.y, line2.p1.x - line2.p2.x);
+        if (angle2 < 0) angle2 += 2 * Math.PI;
+        var result = angle2 - angle1;
+        if (result < 0) result += 2 * Math.PI;
+        if (result < 0) result = 0; // in case rounding in above step fails to make result positive
+        return result;
+    }
+
+    function reverseLine(line) 
+	{
+        return { p1: line.p2, p2: line.p1 };
+    }
+
+    function ptEq(p1, p2) 
+	{
+        return p1.x === p2.x && p1.y === p2.y;
+    }
+
+    function ptGt(p1, p2) 
+	{
+        return p1.x === p2.x ? p1.y > p2.y : p1.x > p2.x;
+    }
+}
+
+
+function dump(lines) 
+{
+    var s = "";
+    for (var i = 0; i < lines.length; ++i) 
+	{
+        s = s + " " + dumpl(lines[i]);
+    }
+    return s;
+}
+
+function dumpl(line) 
+{
+    return "[" + dumpp(line.p1) + "-" + dumpp(line.p2) + "]";
+}
+
+function dumpp(pt) 
+{
+    return "(" + pt.x + "," + pt.y + ")";
+}
+
+//===================================================================
+var pointsList = [{x:-2,y:2},{x:0,y:-2},{x:0,y:2},{x:-2,y:-2}];//http://www.wolframalpha.com/input/?i=plot%28-2%2C2%29%2C%280%2C-2%29%2C%280%2C2%29%2C%28-2%2C-2%29%2C%28-2%2C2%29
+var pointsList2=[{x:-2,y:0},{x:2,y:0},{x:-2,y:-4},{x:0,y:4},{x:2,y:-4}];//star:http://www.wolframalpha.com/input/?i=plot%28-2%2C0%29%2C%282%2C0%29%2C%28-2%2C-4%29%2C%280%2C4%29%2C%282%2C-4%29%2C%28-2%2C0%29
+var pointsList3=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];//square
+var pointsList4=[{x:0,y:4},{x:1,y:2},{x:-2,y:1.5},{x:1,y:-2},{x:0,y:-3}];//http://www.wolframalpha.com/input/?i=plot%280%2C4%29%2C%281%2C2%29%2C%28-2%2C1.5%29%2C%281%2C-2%29%2C%280%2C-3%29%2C%280%2C4%29
+var pointsList5=[{x:-2,y:4},{x:-2,y:0},{x:2,y:0},{x:2,y:4},{x:-3,y:2},{x:3,y:2}];
+//http://www.wolframalpha.com/input/?i=plot+%28-2%2C4%29%2C%28-2%2C0%29%2C%282%2C0%29%2C%282%2C4%29%2C%28-3%2C2%29%2C%283%2C2%29%28-2%2C4%29
+var activePolygon = new Polygon(pointsList2);
+var iterlist = activePolygon.intersections();
+console.log(iterlist);
+var complexPolygon = new dividedPolygon(activePolygon,iterlist);
+console.log(complexPolygon);
+var x = perimeter(complexPolygon);
+console.log(x);
+</script>
+
+</body>
+</html> 
